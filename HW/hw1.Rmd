@@ -1,0 +1,140 @@
+---
+title: "BIOSTAT620-HW1"
+author: "Ningyuan Wang"
+date: "2/5/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+## Problem 1
+
+a.	The experimental unit is patient. The factors are those control variables such as age and gender. The treatments are drug A and drug B. 
+
+b.	With R function sample( ), the labels for the 10 selected  patients  to be treated by Drug A are 8  1 10 13 15 7 18 9 20 14.
+
+```{r}
+#b.
+set.seed(620)
+x = 1:20
+sample(x, size = 10, replace = FALSE)
+
+```
+
+
+
+
+## Problem 2
+
+a.	EHR refers to electronic health record, while EMR refers to electronic medical record.  In terms of content and population, EMR is only a digital version of the traditional paper-based medical record of patients, while EHR is about health information of all patients and population. Another difference is that EHR is allowed to move between health care providers, specialists, hospitals, even across states and country, while EMR is only within a single facility such as a hospital or a clinic. 
+
+b.	For administrative claims data, it has best breadth, but worst details mostly cover all places of service, but lack detailed clinical information. For registries, it has more detailed clinical information but only focuses on specific diseases. 
+
+c.	Around 10 seconds to download EMRBOT 10k patient data. The table has 1000 observations/patients with 7 variables (patient ID, patient gender, patient date of birth, patient race, patient marital status and patient language).
+```{r}
+patients = read.table('PatientCorePopulatedTable.txt', sep = '\t', header=TRUE)
+dim(patients)
+names(patients)
+```
+
+
+
+
+### Diabetes RCT
+####Load the packages and data
+
+The data contains 24 variables, including ID, drugs, outcomes, and 18 baseline covariates. 830 patients are used in the following analysis. Since the covariates distributions may lose their balance, we use the propensity score matching method to correct unbalanced covariates distributions. In problem 3, we use R function Match to create matches; we use R function MatchIt to achieve the same goal and then make comparision based on two methods. 
+
+In the case, we are interested in identifying covariates that suffered unbalanced distributions as the result of missing data, and then correct the imbalance using the propensity score matching method. First, we run the logisic regression.  
+```{r, results='hide', message=FALSE}
+# packages
+library(boot)
+library(MASS)
+library(tableone)
+library(Matching)
+library(MatchIt)
+
+# data
+diabetes.dat = read.table("NBI_PseudoData.txt", sep = ",", header=T)
+mydata = data.frame(diabetes.dat) # convert to a dataframe
+```
+We first fit the logistic regression model. According to the summary of the model, we notice that there are three covariates with the p-values smaller than 0.05. Theses covariates are likely to be responsible for the bias of drug allocation. Therefore, we calculate the propensity scores predicted from the logistic model, which are in fact the fitted values from the model. 
+```{r }
+# fit a logit model
+psmodel = glm(Rx ~ HDL + LDL + Tol.Chol + Triglycerid + Creatinine + Insulin.Fasting+ ALT + AST + GGT + Diabetes.Duration + Age + Weight+ BMI + HbA1C + Fasting.BG + BP.Diastolic + BP.Sstolic + Pulse,
+              family =binomial(), data=mydata) # default is logit
+summary(psmodel)
+
+# pull out fit values
+pscore = psmodel$fitted
+Rx = diabetes.dat[,2]
+```
+
+### Problem 3
+
+a.
+We use R function Match to create matching from the raw propensity scores. At caliper = 1.9, there are 798 subjects involved in 399 pairs of 1:1 matches, which achieves the maximal numbers of matches while the SMD is contrlled at 0.1 or lower. The table of mean, standard deviation, and SMD for each covariate for the resulting matches shows below. 
+
+```{r, warning=FALSE}
+# part a
+psmatch = Match(Tr=mydata$Rx, M=1, X=logit(pscore), replace=FALSE, caliper =1.9)
+matched.out = mydata[unlist(psmatch[c("index.treated","index.control")]),]
+xvars = c("HDL","LDL", "Tol.Chol", "Triglycerid", "Creatinine", "Insulin.Fasting","ALT", "AST", "GGT", "Diabetes.Duration", "Age", "Weight", "BMI","HbA1C","Fasting.BG", "BP.Diastolic","BP.Sstolic", "Pulse")
+matched.tab = CreateTableOne(vars=xvars, strata ="Rx", data=matched.out, test=FALSE)
+print(matched.tab, smd = TRUE)
+```
+
+b. 
+We estimate the treatment of effect by two-sample t-test for $H_0$: $\mu_1$ = $\mu_0$, where $\mu_1$ = E(Y|A = 1) and $\mu_0$ = E(Y|A = 1) with Y = AY(1) + (1-A)Y(0) and A = 1 for pilglitazone and A = 0 for gliclazide.
+Consider the case of 399 matched pairs, $t$-statistics is -0.4627, $p$-value is 0.6437 and 95% confidence interval is (-0.479, 0.296), which contains 0, so we don't reject the null hypothesis. For the case of no matching being used in the analysis, we obtain the $t$-statistics is 1.9597, $p$-value is 0.0504 and 95% confidence interval is (-0.001  0.758), which also contains 0, although the left bound is very close to 0, we don't reject the null hypothesis either. The two analyses essentially end up with the same conclusion. 
+
+```{r}
+# part b
+t.test(matched.out$Diff[Rx==1],matched.out$Diff[Rx==0]) # matched pairs
+t.test(mydata$Diff[Rx==1],mydata$Diff[Rx==0]) # nomatched 
+```
+
+c.
+
+In this case, I would recommend to use the propensity score matching to perform the analysis. Based on the plot below, we visualize the propensity scores stratified by treatment arm, from which we may judge if the propensity score matching will play any role in balacing covariates distribution. We see that the two histgraom look different, i.e. the red distribution is more skewed to the right, while the blue distribution is more skewed to the left, which indicates a bias in data selection, and it may lead to a misleading conclusion. 
+
+With the propensity score matching method, our estimate is not an average treatment effect for a general population, rather is a treatment effect on the treated. Recall our two sample t-tests for matched pairs and raw data under the null hypothesis that $H_0$: $\mu_1$ = $\mu_0$, where $\mu_1$ = E(Y|A = 1) and $\mu_0$ = E(Y|A = 1) with Y = AY(1) + (1-A)Y(0) and A = 1 for pilglitazone and A = 0 for gliclazide. Although the two methods (i.e. propensity score or not) offers the same conclusion that there is no significant difference between two treatments. However, for the method with propensity score matching method, we have more evidence in do not reject the null hypothesis which give us a more meaningful and supportive conclusion alghough we may have some small amount (i.e. 32 in this case) unmatched data.
+
+```{r}
+Rx = diabetes.dat[,2]
+pscore1 = pscore[Rx==1]
+pscore0 = pscore[Rx==0]
+hpscore1 = hist(pscore1)
+hpscore0 = hist(pscore0)
+hpscore0$counts = - hpscore0$counts
+plot(hpscore1, xlab ="propensity scores", xlim=c(0.1,0.9), ylim=c(-100,100),col="red", main="Histograms of propensity scores")
+lines(hpscore0, col="blue")
+
+```
+
+## Problem 4
+
+a.
+We use R function MatchIt to create matching from the raw propensity scores. Similar to Problem 3, we control the SMD at 0.1 or lower, and there are 786 subjects involved in 393 pairs of matching. The table of mean, standard deviation, and SMD for each covariate for the resulting matches shows below. 
+
+
+b. 
+We estimate the treatment of effect by two-sample t-test for $H_0$: $\mu_1$ = $\mu_0$, where $\mu_1$ = E(Y|A = 1) and $\mu_0$ = E(Y|A = 1) with Y = AY(1) + (1-A)Y(0) and A = 1 for pilglitazone and A = 0 for gliclazide.
+Consider the case of 393 matched pairs, $t$-statistics is -0.9563, $p$-value is 0.3392 and 95% confidence interval is (-0.575  0.198), which contains 0, so we don't reject the null hypothesis. For the case of no matching being used in the analysis, we obtain the $t$-statistics is 1.9597, $p$-value is 0.0504 and 95% confidence interval is (-0.001  0.758), which also contains 0, although the left bound is very close to 0, we don't reject the null hypothesis either. The two analyses essentially end up with the same conclusion. 
+```{r, warning=FALSE}
+# a.
+match.out2 = matchit(Rx ~ HDL + LDL + Tol.Chol + Triglycerid + Creatinine + Insulin.Fasting+ ALT + AST + GGT + Diabetes.Duration + Age + Weight + BMI+ HbA1C + Fasting.BG + BP.Diastolic + BP.Sstolic + Pulse,data=mydata, method="nearest")
+matched.out2 = match.data(match.out2)
+matched.tab2 = CreateTableOne(vars=xvars, strata ="Rx", data=matched.out2, test=FALSE)
+print(matched.tab2, smd = TRUE)
+
+#b
+t.test(matched.out2$Diff[Rx==1],matched.out2$Diff[Rx==0]) # matched pairs
+t.test(mydata$Diff[Rx==1],mydata$Diff[Rx==0]) # nomatched 
+
+```
+
+c. 
+Both two functions work as propensity score matching methods, they both aim to deal with the unbalanced problem in average treatment effect. In general, in this case, we get the same conclusion with different methods, that is there is no significant difference between two treatments. However, if we take a look of their average treatment effect of each method,  we may notice a little difference with two methods. Above observation relates to a property of propensity score matching, that is different matching rule (greedy or optimal) may generate different new control group and lead to different results. However, both two methods indicates a smaller ATE of gliclazide, while the original data indiates a larger ATE in gliclazide. So, the propensity score matching is necessary in this case to avoid misleading results. 
