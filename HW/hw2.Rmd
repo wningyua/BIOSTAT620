@@ -1,0 +1,342 @@
+---
+title: "Biostat620-HW2"
+author: "Ningyuan Wang"
+date: "2/13/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(readxl)
+library(ggpubr)
+```
+
+## Problem 1
+
+a.
+Neuroimaging studies are the studies about imaging data (i.e. mainly about brain imaging). Human brain contains a lot of information due to a network with around 100 billion neurons. Brain imaging consists two major categories: structural brain imaging (CT, MRI, PET) and functional brain imaging (PET, fMRI, EEG and MEG). Analyzing structural brain imaging deals with the study of brain structure and the diagnosis of disease and injury, and functional brain imaging is for studying both cognitive and affective processess. 
+
+
+b. 
+As mentioned above, there are two major types of brain imaging. Structural brain imaging and functional brain imaging. Modalities of structural brain imaging include CT, MRI, PET, while functional brain imaging includes PET, fMRI, EEG and MEG. Structural brain imaging is on the study of brain structure and diagnoses of disease and injury.Fuctional brain imaging is undertanding cognitive and affective processes of brain.  Structurla images are of high spatial resolution, which can distinguishi different types of tissue. 
+
+c.
+For example, statistical analysis of fMRI data is challenging becuase the data is massive, and the signal of interest is relatively weak. Also, the data exhibits a complicated temporal and spatial noise structure.
+
+## Problem 2
+
+a. 
+Medical claims table. The medical claims table contains medical claim data for inpatient and outpatient professional services including services such as outpatient surgery, laboratory and radiology. Identifying lung cancer probably needs laboratory and radiology diagnoses, so this table may have some records. 
+
+b.
+Member table and member detail table contain information on every member enrolled with the health plan during the specified data period. We may collection data on patients socio-economic status (SES) and death (DOD) to study the survival of patients with lung cancer. 
+
+c.
+Inpatient confinement table. The inpatient confinement table contains a summarized record for each inpatient episode occuring in an acurate care hospitalization or skilled nursing facility setting. The table includes aunique record for every hospitalization observed during the data period. Therefore, the table may help track patients' hospitalization.
+
+
+## Problem 3
+
+### Multiple Regression Analysis 
+With the multiple regression analysis, we select some variables to predict the adjusted differential treatment effect between two treatments. In this example, we are interested in patients' diagnosis and doctor visiting information, sch as age, weight, AST, and GST, so we use those relative variables as predictors. Since we are interested in the adjusted differential treatment effect between two treatments. The testing hypothesis is: Ho : $\mu_1$= $\mu_2$, which indicates no difference on adjusted differential treatment effect, and H1: mu1 is not equal to mu2, which indicates difference in ATE. 
+
+Based on t-test of Rx, the estimated adjusted differential treatment effectis 0.3991446, meaning that patients with piogliztazone treatment have a slightly more reduction in plasma glucose concentration than gliclazide treatment. We notice that p-value is 0.0108. At alpha = 0.05, p-value < alpha, reject Ho. Therefore, we have enough evidence to claim that there is a statistically significant adjusted differential treatment effect between two treatments piogliztazone and gliclazide. 
+
+However, we may wonder that if there is a patients selection bias of choosing treatments? Is a specific population group is more likely to choose one of the treatment? The estimate of adjusted differential treatment effect with linear regression ignores the treatment allocation bias, and it does not account for possible unbalanced treatment allocation. To deal with the problem, we apply inverse probability weighting method. 
+
+```{r}
+diabetes.dat = read.table("NBI_PseudoData.txt", sep = ",", header=T)
+mydata = data.frame(diabetes.dat) # convert to a dataframe
+
+fit.lm = lm(Diff ~ Rx +  HDL + LDL + Tol.Chol + Triglycerid + Creatinine +Insulin.Fasting+ ALT + AST + GGT + Diabetes.Duration +Age + Weight+ BMI + HbA1C +Fasting.BG + BP.Diastolic + BP.Sstolic + Pulse, data = mydata )
+
+summary(fit.lm)
+
+```
+
+### Inverse Probability Weighting Approach 
+
+We use inverse probability to balance the biased treatment allocation. The idea is to clone patients accroding to their chance of being chosen to have treatment piogliztazone, in which lower probability of having piogliztazone treatment deserves more cloned replicates in order to compensate the low sampling chance and thus to remove unbalanced treatment allocation.  
+
+To perform an IPW adjustment in the data analysis, we used the propensity scores to weight the normal equations from which the estimates are derived. The weight takes a form of reciprocal of the propensity scores. The following table gives the results of the analysis, where the differential treatment effect is not statistically significant. 
+
+```{r}
+# IPW
+xvars <-c("HDL","LDL", "Tol.Chol", "Triglycerid", "Creatinine","Insulin.Fasting","ALT", "AST", "GGT", "Diabetes.Duration", "Age","Weight", "BMI","HbA1C","Fasting.BG", "BP.Diastolic","BP.Sstolic", "Pulse")
+myfit = glm(Rx~ HDL + LDL + Tol.Chol + Triglycerid + Creatinine + Insulin.Fasting+ ALT + AST + GGT + Diabetes.Duration + Age + Weight+ BMI + HbA1C + Fasting.BG + BP.Diastolic + BP.Sstolic + Pulse, family = binomial(link = "logit"), data = mydata)
+
+propens = round(myfit$fitted.values, 3)
+
+
+mydat = cbind(mydata[xvars], mydata$Rx, mydata$Diff)
+names(mydat) = c("HDL","LDL", "Tol.Chol", "Triglycerid", "Creatinine","Insulin.Fasting","ALT", "AST", "GGT", "Diabetes.Duration", "Age","Weight", "BMI","HbA1C","Fasting.BG", "BP.Diastolic","BP.Sstolic", "Pulse", "Rx", "Diff")
+
+mydat.ipw = mydat/sqrt(propens)
+summary(lm(mydat.ipw$Diff ~ mydat.ipw$Rx))
+
+```
+
+### Model Assumptions
+
+Using the IPW adjustment, we found that the differential treatment effect was statistically significant with p-value equal to 0.099>0.05. The analysis based on the IPW adjustment aims to achieve the sampling balance for treatment allocation, which may be broken in the complete-case analysis (using only subjects with fully observed data and ignoring subjects with missing values). The result is in agreement with that previously obtained by the propensity matching method in Homework 1. This adjusted analysis may give a causal interpretation for the estimated effect. On the other hand, the multiple regression analysis reveals the conditional association relationship only, by removing some potential confounding effects from the relationship between outcome and treatment. 
+
+
+In multiple regression analysis, we assume the residuals are normally distributed and the variables are independent. However, in our RCT data example, the biggest violation about the model assumptions is variable independence, because there could be patients selection bias / treatment allocation bias in selecting a specific treatment. To deal with above problem, we apply IPW method instead which may be more reliable in real world data analysis. IPW assumes that treatment assignment is based soley on covariates and it is independent of outcome by using the idea of cloning samples to balance the selection bias. Therefore, the model is much robust than multiple regression analysis approach. 
+
+## Problem 4
+
+a. 
+Time series plots of the raw data are shown in the figure below. 
+
+```{r}
+# solution 
+dat<-read_excel("temp_data.xlsx")
+breaks <- as.Date(quantile(dat$date, 0:10/10)) # 10 breaks
+n <- quantile(0:1, 0:10/10) *nrow(dat)
+
+ggplot(dat, aes(x=1:nrow(dat), y = temperature)) + 
+  geom_line() + 
+  scale_x_continuous(breaks = n, labels = breaks) + 
+  xlab("date")
+
+```
+
+
+Time series plots of the daily mean and daily median measurements are shown respectively in the figure below.
+```{r}
+# calculate the mean of temperature on a daily base
+mean_by_day = aggregate(dat$temperature, list(dat$date), mean)
+colnames(mean_by_day) <- c("date", "temperature")
+breaks = as.Date(quantile(mean_by_day$date, 0:10/10) )
+mean_by_day$date = as.Date(mean_by_day$date)
+pmean = ggplot(mean_by_day, aes(x=date, y = temperature)) +
+  geom_line() +
+  scale_x_date(breaks = breaks, date_labels = "%b %d") + 
+  ggtitle("daily mean temperature") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+# calculate the median of temperature on a daily base
+med_by_day = aggregate(dat$temperature, list(dat$date), median)
+colnames(med_by_day) = c("date","temperature")
+breaks = as.Date(quantile(med_by_day$date, 0:10/10))
+med_by_day$date = as.Date(med_by_day$date)
+pmed = ggplot(med_by_day, aes(x = date, y = temperature)) +
+  geom_line() +
+  scale_x_date(breaks = breaks, date_labels = "%b %d") +
+  ggtitle("daily median temperature") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+ggarrange(pmean, pmed, ncol = 1)
+
+```
+
+
+Submitted anwers shown below.
+
+```{r pressure, echo=FALSE}
+temp_data<-read_excel("temp_data.xlsx")
+# pick the 00:00:00 of the starting day and transform it to epoch time
+ref_epoch <- as.numeric(as.POSIXct(temp_data$timestore))
+slot_len <- 60
+ref_slot <- ceiling(ref_epoch/slot_len)
+slot = ref_epoch - ref_slot
+Nslot <- 24*60*60/slot_len
+slot_of_day <- slot %% Nslot
+
+
+  
+#transform calendar time to epoch time : 
+my_start1<-as.numeric(as.POSIXct(temp_data$timestore[1]))
+my_end1<-as.numeric(as.POSIXct(temp_data$timestore[nrow(temp_data)])) # No.slot with reference to 00:00:00 of the starting day
+my_start_slot<-ceiling(my_start1/slot_len)- ref_slot
+my_end_slot<-ceiling(my_end1/(slot_len))- ref_slot
+
+# No.slot with reference to time 00:00:00 of the observed day
+my_start_slot_of_day <- my_start_slot %% Nslot
+my_end_slot_of_day <- my_end_slot %% Nslot
+  
+# observed day. 1: next day to the first obs.
+start_day <- ceiling(my_start_slot/Nslot) - 1
+end_day<-ceiling(my_end_slot/Nslot) - 1
+
+# transform to calendar time
+my_start_calendar<-my_start_slot_of_day/(60*60*24/slot_len)*24
+my_end_calendar<-my_end_slot_of_day/(60*60*24/slot_len)*24
+
+
+
+mag_times = 5
+n<-ceiling(nrow(temp_data)/mag_times)
+temp_data$mag<-rep(1:n,each=mag_times,len=nrow(temp_data))
+y<-unlist(select(temp_data,temperature))
+mean_agg<-aggregate(y,list(temp_data$mag),mean)
+colnames(mean_agg)<-c('No.','mean')
+```
+
+```{r}
+
+time_agg<-aggregate(slot_of_day,list(temp_data$mag),mean)
+colnames(time_agg)<-c('No.','time')
+data_agg<-merge(mean_agg,time_agg,by='No.')
+time<-slot_of_day
+breaks<-round(quantile(time))
+breaks_24<-breaks%%24
+day<-breaks%/%24
+ggplot(data_agg,aes(x=time,y=mean))+
+       ylab("Temperature")+ xlab("Calender Time") +
+       geom_line()+
+       scale_x_continuous(breaks=breaks,
+                     labels =paste(paste(breaks_24,day,sep='(+'),')',sep=''))
+
+```
+
+
+b.
+We did the following data quality control.
+
+-According to the fact that the human body temperature norm range from 36.1 $\circ_C$ to 37.2 $\circ_C$, we decided to delete measurements of body temperature below 36 $\circ_C$ from the set of measurements at each day.
+
+-We also deleted repeatedly constant measurements at the beginning of each day, and such zero variation is clearly unlikely to occur, which may be due largely to the warm-up period of the device. 
+
+-After preprocessing the above QC, we used the remaining data each day to calculate daily mean temperature and daily median temperature, which are plotted in the figure below.
+
+-We created a box plot for the daily body temperature data to confirm that the cleaned data contain no obvious outliers.
+
+-In addition, we did a scatter plot of daily median temperature vs daily mean temperature, with the latter being robust, to see if there are any outlying data cases. The Pearson correlation of them is 0.986, indicates that the two time series are very similar. 
+```{r}
+# remove any abnormal recordings (temp<36)
+dat = dat[dat$temperature>=36,]
+
+# remove repeatedly constant measurements
+lmean = NULL
+lmed = NULL
+dat2 = data.frame()
+for (i in unique(dat$date)){
+  sub <- dat[dat$date == i, ]
+  x = sub$temperature
+  if(length(which(diff(x) == 0))==0)sub_new = sub else sub_new = sub[-which(diff(x)==0), ]
+  dat2 = rbind(dat2, sub_new)
+  lmean = c(lmean, mean(sub_new$temperature))
+  lmed = c(lmed, median(sub_new$temperature))
+}
+
+# plot mean 
+ggplot(data.frame(date = as.Date(unique(dat2$date)), temperature = lmean),
+       aes(x=date, y=temperature)) +
+  geom_line() +
+  scale_x_date(breaks = as.Date(quantile(dat2$date, 0:10/10)), date_labels = "%b %d") +
+  ggtitle("daily mean temperature") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# plot median 
+ggplot(data.frame(date = as.Date(unique(dat2$date)), temperature = lmed), 
+       aes(x = date, y = temperature)) +
+  geom_line() + 
+  scale_x_date(breaks = as.Date(quantile(dat2$date, 0:10/10)), date_labels = "%b %d") +
+  ggtitle("daily median temperature") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# boxplot: no obvious outliers
+ggplot(dat2,aes(y=temperature)) +
+  geom_boxplot() +
+  ggtitle("Box Plot") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+
+ggplot(data.frame(mean=lmean, med = lmed), aes(x=mean, y=med)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("daily mean temperature") +
+  ylab("daily median temperature")
+
+cor(lmean, lmed, method = "pearson") # two time series are very similar
+```
+
+
+Submitted answers:
+Based on the above plot, we noticed that there are a lot of "zig-zag", which may not useful for understanding the plot pattern and data trend. For better understanding of the data, we want to de-noise temperature data by median smoothing filters. 
+
+c.
+To further smooth away some local wiggly waves which are not part of signals, we perform a median filter as a one step of de-noising. Take the data from Aug 10, 2016 as an example. 
+
+```{r}
+library(forecast)
+library(fractal)
+aug10 = dat2[as.character(dat2$date) == "2016-08-10", ]
+
+ggplot(aug10, aes(x = 1:nrow(aug10), y= temperature)) + 
+  geom_line() +
+  geom_point() +
+  theme(axis.text.x = element_blank()) +
+  xlab("Aug 10")
+
+x = aug10$temperature
+par(mar = c(2,2,1,1))
+acf = Acf(x)$acf
+n = sum(abs(acf)>=qnorm(1-0.05/2)/ sqrt(length(x))) 
+x_sm = medianFilter(x, order = 2*n+1)
+y = data.frame(x, x_sm)
+
+stackPlot(x = 1:length(x_sm), y = y,ylab = list(text = c("raw data", "smoothed data")))
+```
+
+
+
+
+Submitted answers:
+We apply the median smoothing filter on daily temperature records. New plot of temperature agianst date shows below.
+```{r}
+# subset the data by date
+library(dplyr)
+library(tidyr)
+
+ref_epoch <- as.numeric(as.POSIXct(strptime(paste(temp_data$date,' 000000', sep = ""), format = '%Y-%m-%d %H%M%S')))
+temp_data$dat_slot <- ceiling(ref_epoch/slot_len)
+day1 = temp_data[1:93,]
+acf(day1$temperature)
+
+
+median_data = temp_data %>% group_by(date) %>% summarise(day_median = median(temperature)) %>% mutate(day_median  = day_median)
+
+ggplot(median_data,aes(x=date,y=day_median))+
+       ylab("Temperature")+ xlab("Calender Time") +
+       geom_line()
+
+
+
+
+
+```
+
+
+d. 
+
+We perfprm the median filter on the daily mean and median temperature
+```{r}
+acf_mean = Acf(lmean)$acf
+acf_med = Acf(lmed)$acf
+n_mean = sum(abs(acf_mean) >= qnorm(1-0.05/2) / sqrt(length(lmean)))
+n_med = sum(abs(acf_med)>=qnorm(1-0.05/2) / sqrt(length(lmed)))
+mean_sm = medianFilter(lmean, order= 2*n + 1)
+med_sm = medianFilter(lmed, order = 2*n+1)
+#plot
+stackPlot(x=1:length(mean_sm), y=data.frame(lmean, mean_sm), ylab = list(text = c("daily mean data", "smoothed mean data")))
+
+stackPlot(x=1:length(med_sm), y=data.frame(lmed, mean_sm), ylab = list(text = c("daily median data", "smoothed median data")))
+
+```
+
+
+
+
+Sumitted answer:
+Compare two plots of temperature against time. We think the second one looks smoother and easy to capture. I will prefer the second one when doing furthere analysis on temperature data.
+
