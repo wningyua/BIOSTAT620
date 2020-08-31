@@ -1,0 +1,291 @@
+---
+title: "midterm_620"
+author: "Ningyuan Wang"
+date: "2/27/2020"
+output: "pdf_document"
+fontsize: 12pt
+geoemtry: margin= 2in
+header-included:
+   - \usepackage{setspace}
+   - \doublespacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# load the packages
+library(ggplot2)
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(dplyr)
+library(ggpubr)
+```
+
+## Problem 1
+Heart rate is one of the most important organs in the human body, and there is only one. Thus, taking care of heart health is of critical importance. The best way to prevent heart problems is to understand and manage related risks in daily life. In the midterm project, we will vasulaize the heart rate data recorded in wearable tracker in order to learn conditions of the heart of an individual. 
+1a.
+
+
+```{r }
+# read in data and add epoch time
+# day1
+dat1 = read.csv("HR1.csv", skip = 2, header = F)
+start1 = as.numeric(readLines("HR1.csv", n=1))
+epoch_time1 = c(0:(nrow(dat1)-1)) + start1
+calender_time1 = as.POSIXlt(epoch_time1, origin = "1970-01-01",tz = 'America/Detroit')
+date1 = substring(calender_time1,1,10)
+dat1 = cbind(calender_time1, date1, dat1)
+colnames(dat1) = c("Time", "Date", "HR")
+
+# day2
+dat2 = read.csv("HR2.csv", skip = 2, header = F)
+start2 = as.numeric(readLines("HR2.csv", n=1))
+epoch_time2 = c(0:(nrow(dat2)-1)) + start2
+calender_time2 = as.POSIXlt(epoch_time2, origin = "1970-01-01",tz = 'America/Detroit')
+date2 = substring(calender_time2,1,10)
+dat2 = cbind(calender_time2, date2, dat2)
+colnames(dat2) = c("Time", "Date", "HR")
+
+dat_raw = rbind(dat1, dat2)
+```
+
+
+1b.
+
+We did the following data quality control.
+
+-According to the fact that the normal resting heart rate for adults over the age of 10 years, including older adults, is between 60 and 100 beats per minute (bpm). We decided to only keep HR measurements above 60 bpm, and readings below this value were considered clinically abonormal, and usually occurred when the device was not worn properly. 
+
+-We also deleted first 5 readings at the beginning of each wearing period of the device, because the device took several seconds to active and warm-up, and the redings in the warm-up period did not accurate.
+
+-We created a box plot for the two-day HR data to confirm that the cleaned data contain no obvious outliers. Based on the plot, we may concern about the higher HR records shown in the plot. However, since the HR data also included daily exercsie period, and for the individual aged between 20-30 years, records under 170 bpm were still considered as normal records. Therefore, we kept those high HR records. 
+```{r, echo = FALSE, fig.width=5, fig.height=2.5 }
+# remove first 5 readings for each wearing period
+dat1 = dat1[-c(1:5),]
+dat2 = dat2[-c(1:5),]
+dat = rbind(dat1, dat2)
+
+# remove any abnormal recordings (HR<60)
+dat = dat[dat$HR>=60,]
+
+# check with boxplot
+ggplot(dat,aes(y=HR)) +
+  geom_boxplot() +
+  ggtitle("Box Plot") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+```
+
+
+1c.
+After preprocessing the above cleaning, a time series plot on cleaned data was shown below. First sleeping period was captured between two blue dashed lines, and second sleeping period was captured between two green dashed lines. Records between two yellow dashed lines were heart rates in exercise period.  
+
+
+```{r, echo = FALSE,  fig.width=5, fig.height=2.5 }
+# time series plot of cleaned data
+ggplot(dat, aes(x=Time, y = HR)) +
+  geom_line()  + 
+  xlab("Calender Time") +
+  ylab("HR (hbpm)") +
+  geom_vline(xintercept = 3, col = "red")+
+  geom_vline(aes(xintercept=1581912000),
+            color="blue", linetype="dashed", size=0.5) +
+  geom_vline(aes(xintercept= 1581939000),
+            color="blue", linetype="dashed", size=0.5) +
+  geom_vline(aes(xintercept= 1582000800),
+            color="green", linetype="dashed", size=0.5) +
+  geom_vline(aes(xintercept= 1582023000),
+            color="green", linetype="dashed", size=0.5) +
+    geom_vline(aes(xintercept= 1581903000),
+            color="yellow", linetype="dashed", size=0.5) +
+  geom_vline(aes(xintercept= 1581911400),
+            color="yellow", linetype="dashed", size=0.5)
+
+
+
+
+
+
+
+```
+
+
+## Problem 2
+
+
+```{r, echo = FALSE}
+# set up 10 mins epoch for the whole data set
+slot_len = 60*10 # 10 minutes
+slot <- ceiling(as.numeric(dat$Time)/(slot_len))
+all_unique_slot <- seq(from = min(slot), to = max(slot), by = 1)
+data_slot <- matrix(NA, nrow = length(all_unique_slot), ncol = 3) #3 columns
+data_slot[,1] <- all_unique_slot
+for (i in 1:length(all_unique_slot)){
+  data_in_slot <- dat[slot == all_unique_slot[i],3]
+  data_slot[i,2] <- mean(data_in_slot, na.rm = TRUE)# mean 
+  data_slot[i,3] <- sd(data_in_slot, na.rm = TRUE)# sd
+}
+colnames(data_slot) <- c('slot', "HR_mean", "HR_sd")
+data_slot = as.data.frame(data_slot)
+# add calender time
+info_time = data_slot[, 1] *slot_len
+info_time = as.POSIXlt(info_time, origin = "1970-01-01",tz = 'America/Detroit')
+info_date = substring(info_time,1,10)
+info = cbind(info_date, info_time, data_slot)
+info = info[,-3] # remove slot column
+colnames(info) = c("Date", "Time", "HR_mean", "HR_sd")
+
+# remove NA
+NA_flag <- apply(info,1,function(x){any(is.na(x))})
+info <- info[!NA_flag,]
+
+
+```
+
+2a.
+
+The tables below show mean and standard deviation of HR readings in each poch of 10-mins during the sleeping period (first night and second night). Due to page limitation, we only present first 5 records of each night
+```{r,echo = FALSE }
+# extract data during night periods
+night1 = info[64:102,] %>% select(-Date)
+head(night1,5)
+night2 = info[204:237,] %>% select(-Date)
+head(night2,5)
+night = rbind(night2, night2)
+```
+
+
+2b.
+The boxplots below show the HR means and standard deviations for both two sleeping periods. In first sleeping period, we noticed one higher outlier in HR mean and two outliers in HR standard deviation. However, we distinguished the recording was at 3:40 am in Feb 17, 2020 with HR mean 75.56 and standard deviation 9.12. I think it is possible due to nightmare, so it's reasonable to keep the record. Also, sicen there was only very few records considered as outliers, we think those records did not influence the overal central tendency and variabtion. With similar explanation, we had distinguished all outlier records shown in the boxplots and ended with the decision of keeping all records.   
+
+```{r, echo = FALSE,  fig.width=3, fig.height=2.5 }
+#which.max(night1$HR_mean)#26
+#night1[26,]# max
+# first night
+ggplot(night1,aes(y=HR_mean)) +
+  geom_boxplot() +
+  ggtitle("First Night HR Means for Every 10-mins") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+
+ggplot(night1,aes(y=HR_sd)) +
+  geom_boxplot() +
+  ggtitle("First Night HR SDs for Every 10-mins") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+
+# second night
+ggplot(night2,aes(y=HR_mean)) +
+  geom_boxplot() +
+  ggtitle("Second Night HR Means for Every 10-mins") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+
+ggplot(night2,aes(y=HR_sd)) +
+  geom_boxplot() +
+  ggtitle("Second Night HR SDs for Every 10-mins") +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_blank()) 
+```
+
+2c.
+According to the article "Know your target heart rate for exericse, losing weight and health" and the common knowledge on sleeping health. A good quality of sleeping was recognized with low HR records and smaller variabtion of HR records. The time-series  plots showed HR records during two sleeping periods. The red line was a cutoff of HR at 70 bpm. Overall, the quality of first night sleeping was better than the other day due to smaller variation and relative lower heart beats. Also, midnight to 3am in both two nights had relative good quality of sleeping becauase of lower heart beat and stable records. The period between midnight to 3am probably in the deep sleeping stage with good quality of resting. However, the sleeping quality of second night was not so well probably due to stress and anxiety of homework due on the next morning. Based on plots and my experiene, I think academic stress has a remarkable influence on the quality of sleeping. 
+
+```{r, echo = FALSE}
+# time series plot for first night
+pn1 = ggplot(night1, aes(x=Time, y = HR_mean)) +
+  geom_line()  + 
+  xlab("First Sleeping Period") +
+  geom_hline(yintercept = 70, col = "red")
+
+# time series plot for second night
+pn2 = ggplot(night2, aes(x=Time, y = HR_mean)) +
+  geom_line()  + 
+  xlab("Second Sleeping Period") +
+  geom_hline(yintercept = 70, col = "red")
+
+ggarrange(pn1, pn2, ncol = 1)
+
+```
+
+
+## Problem 3
+
+3a.
+
+The histogram of ratio on HR mean of each epoch over the overall average HR of the resting sate shown below. The plot has a right skewness which indicates more HR records above average HR during sleeping periods. 
+
+
+```{r, echo = FALSE,  fig.width=5, fig.height=2.5 }
+rest = info[-c(51:63),]
+grand_mean = mean(night$HR_mean) #68.70657
+
+# exclude sleeping period
+other_period = info[-c(64:102, 204:237), ]
+other_period$Ratio = other_period$HR_mean/grand_mean
+
+# histogram plot
+ggplot(other_period, aes(x=Ratio)) +
+  geom_histogram() +
+  geom_vline(aes(xintercept=1),
+            color="blue", linetype="dashed", size=1) +
+  xlab("HR Mean Ratio During Non-Sleeping Period")
+
+```
+
+3b.
+Overall, there are 10 HR reocrds taht their ratios falling over the right tail of 95%.  Based on my diary, it's interesting to notice that all 10 readings were happened during the outdooor with a pretty low temperature. At those moments, I was either on my way to school or back home. Therefore, I think coldness was an important factor of affecting the heart beat records. Combine with theory of traditional Chinese madicine, Keeping body warm is necessry for cardiovascuIar health. 
+
+```{r, echo = FALSE}
+quant = quantile(other_period$Ratio, probs = 0.95) #100.3029
+high_ratio_period = other_period[other_period$Ratio>=quant, ]
+high_ratio_period
+```
+
+
+3c.
+The cut-off of 95% percentile is not reasonble in my analysis context. Because only very few records were considered in high HR period, and they were all recorded due to cold weather, whcih were not representative for my daily activites. so the cutoff was not helpful to draw more conclusions from analysis. Also, the HR records during fitness activities were not counted as high ratio HR period. Therefore, I concluded that the cutoff was too high based on the daily activities and it will lose a lot of information in this way. 
+
+## Problem 4
+
+4a.
+
+The histogram of ratio on HR sd of each epoch over the overall average HR of the resting sate shown below. The plot has a right skewness which indicates more  HR variation above average HR during sleeping periods. The conclusion made sense to me because daytime activities will lead to a relative large vairation in HR records. 
+```{r, echo = FALSE, warning=F,  fig.width=5, fig.height=2.5 }
+grand_sd = mean(night$HR_sd) #4.981121
+
+# calculate sd ratio
+other_period$Ratio_sd = other_period$HR_sd/grand_sd
+
+
+
+# histogram plot
+ggplot(other_period, aes(x=Ratio_sd)) +
+  geom_histogram() +
+  geom_vline(aes(xintercept=1),
+            color="blue", linetype="dashed", size=1) +
+  xlab("HR SD Ratio During Non-Sleeping Period")
+
+
+
+```
+
+
+4b.
+
+There were also 10 records were captured as high ratio HR periods. Besides the same records and similar reasons(i.e. cold weather) compared to hihg ratio HR mean periods in 3b. There were two more records caught our interest. One was before sleeping (i.e. record at 2020-02-17 23:20:00) and the other was after waking up (i.e. record at 2020-02-18 06:00:00). I think the record before sleeping indicated I fell sleeping very quickly so there are high varaition between my pre-sleeping HR and sleeping HR. The other one, record in the morning after waking up, indicated that my wake-up was not natural and it was probably due to clock alarm, so I was alerted to the alarm and my HR had a rapid change. 
+```{r, echo = FALSE}
+quant_sd = quantile(other_period$Ratio_sd, probs = 0.95) #2.796633
+high_sd_period = other_period[other_period$Ratio_sd>=quant_sd, ]
+high_sd_period
+
+```
+
+4c.
+I think cutoff with 95% quantile was not perfect neither but better than the 95% cutoff on mean HR in 3c. Because this cutoof captured more information and findings compared to previous one. But I would suggest to a milder cutoff, such as 75%, so that we can geot more information and results. 
+
+
+4d.
+I think the choice of standard deviation is more informative based on my findings in previous parts. I think an important reason is that I am aged 20-30 with healthy physiccal condition. My mean HR are relative low. Also, I did not have intensive exercise in a regular bias and there is no obvious high HR records during my wearing of the device. Therefore, we cannot get a lot of information based on the analysis of average HR. Standard deviation gave us relative more information since I have different daily activities periods, such as studying, commuting, sleeping and exercising, both indoor and outdoor. Daily factors such as academic anxiety, morning alarm, cold temperature affect the HR records together, and therefore, the varaition of HRs are more informative than HR means. 
+
+
