@@ -1,0 +1,306 @@
+---
+title: "BIOSTAT620_HW3"
+author: "Ningyuan Wang"
+date: "3/24/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mice)
+```
+
+## Problem 1: Linear Regression Analysis
+The data had 31 observations with 3 variables. There were 3 missing values in runtime and 8 in runpulse. We found that once runtime value missed, runpulse value would miss as well. However, values in oxygen were always completely observed. In general, there were 8 out of 31 observations (~26%) that had missing values, which was high. Therefore, we did not consider complete-case analysis. We decided to use impuptation method for dealing with missingness. 
+```{r cars}
+fitness = read.table("fitness_dat.txt")
+names(fitness) = c("Oxygen", "Runtime", "RunPulse")
+summary(fitness) # check missing values 
+
+```
+
+### a.
+
+The function mi.lm aims for two goals with two parts: in the first part, we used mice function to impute missing values and generated new data sets; in the second part, we used lm function to fit linear regression to test the imputation. The function required dataframe, response and covarates and iteration times of imputation (default = 5). Finally, the function returned a list of summary for pooled model fit of m iterations. 
+```{r}
+mi.lm = function(df = fitness, m = 5){
+  set.seed(620)
+  mi.dat = mice(df, m = m, printFlag = FALSE)
+  fit = with(mi.dat,lm(RunPulse~ Oxygen + Runtime))
+  result = summary(pool(fit), "all")
+  return(result)
+}
+```
+
+
+### b. 
+
+With the linear regression of outcome runpulse on covariates oxygen and runtime, the relative efficiency shown as follow (i.e. RE of runpulse, oxygen and runtime )
+```{r}
+lambda =  mi.lm()$lambda
+# RE
+RE = 1/(1 + lambda/5)
+RE
+```
+
+### c.
+
+As m increases from 5, 20 to 50, we notice that the relative efficiency is more and more close to 1, which indicates the imputation is becomming more and more efficiency.
+
+
+Theoretically, more iterations(i.e. higher m) will offer better efficiency in terms of imputation. However, in practice, higher m will cause more computation cost as well.  Based on this question, I found that m from 5 to 20 increases 0.01 relative efficiency, but m from 20 to 50 only increases 0.01. Therefore, I think 50 iteration may be too large, but default iteration m =5 is always a good start. Based on the needs of efficiency, we can increase the iteration starting from 5 but may not higher than 20. 
+
+```{r}
+# m = 20
+lambda20 =  mi.lm(m = 20)$lambda 
+RE20 = 1/(1 + lambda20/20)
+RE20
+
+# m=50
+lambda50 =  mi.lm(m = 50)$lambda 
+RE50 = 1/(1 + lambda50/50)
+RE50
+
+
+```
+
+
+## Problem 2: Logistic Regression Analysis 
+
+The data had 25 observations with 4 variables. Except variable age, the rest variables all had missing values.
+```{r}
+data("nhanes")
+summary(nhanes)
+```
+
+### a.
+
+Similar to 1a, the function mi.glm aims for two goals: using mice function to impute missing values and generated new data sets; using glm function with binomial family to fit logstic regression to test the imputation. The function required dataframe, response and covarates and iteration times of imputation (default = 5). Finally, the function returned a list of summary for pooled model fit of m iterations. 
+```{r}
+mi.glm = function(df = nhanes, m = 5 ){
+  set.seed(620)
+  mi.dat = mice(df, m = m, printFlag = FALSE)
+  fit = with(mi.dat,glm(as.factor(hyp)~ age + bmi + chl, family = binomial()))
+  result = summary(pool(fit), "all")
+  return(result)
+  
+}
+```
+
+
+### b.
+
+With the logistic regression of outcome hyp on covariates age, bmi and chl, the relative efficiency shown as follow (i.e. RE of hyp, age, bmi and chl ).
+```{r}
+glm_lambda = mi.glm()$lambda
+RE_glm =  1/(1 + glm_lambda/5)
+RE_glm
+```
+
+
+### c.
+
+Similary to 1c, as m increases from 5, 20 to 50, we notice that the relative efficiency is more and more close to 1, which indicates the imputation is becomming more and more efficiency.
+
+
+Theoretically, more iterations(i.e. higher m) will offer better efficiency in terms of imputation. However, in practice, higher m will cause more computation cost as well.  Based on this question, I found that m from 5 to 20 increases 0.02 - 0.04 relative efficiency for different variables, but m from 20 to 50 only increases  around 0.01. Therefore, I think 50 iteration may be too large, while default iteration m =5 is always a good start. Based on the needs of efficiency, we can increase the iteration starting from 5 but may not higher than 20.In this case, I think m = 20 is a reasonable and efficient size for imputation iterations.  
+
+```{r}
+# m = 20
+glm_lambda20 = mi.glm(m = 20)$lambda
+RE_glm20 =  1/(1 + glm_lambda20/20)
+RE_glm20
+
+# m = 50
+glm_lambda50 = mi.glm(m = 50)$lambda
+RE_glm50 =  1/(1 + glm_lambda50/50)
+RE_glm50
+```
+
+
+## Problem 3: EM Algorithm
+
+
+### a.
+
+In this case, the missing values only kept in the outcome variable(i.e. runpulse). Follow with EM functions, we set the initial values (i.e. beta and sigma) based on the complete-case analysis. EM algorithm was based on MLE estimation and therfore we used interest of parameters in the sample size as initial values to figure out likelihood, which were beta and sigma in the complete-case analysis. 
+
+With EM algorithm, the imputation converged successfully. Compared to the fit of complete-case, we found that the estimation of parameters did not have significant change. However, statistical significancy power(p-value) had significant improvement, and it help statistical inference.
+```{r}
+# EM functions
+lm.EM <- function(data,conv.crt=1E-10,max.it=200){
+#This function only handles missing in responses via EM algorithm.
+#The data structure has to be a matrix with the covariates placed
+#in the beginning columns and the response placed in the last column.
+#The number of row in the data matrix is the number of subjects. 
+#Output conv=1 indicates the success of convergence; conv=0 means no converge.nce
+n <- dim(data)[1]
+p <- dim(data)[2]
+x <- cbind(rep(1,n),data[,1:(p-1)])
+if(is.na(max(x))==TRUE) print("Covariates have missing values")
+else{
+y <- data[,p]
+id.mis <- c(1:n)[is.na(y)]
+id.obs <- c(1:n)[-id.mis] 
+beta.old <- as.vector(solve(t(x[id.obs,]) %*% x[id.obs,])%*%t(x[id.obs,])%*% y[id.obs])
+beta.dif <- 1
+j <- 0
+while (beta.dif > conv.crt){
+j <- j+1
+y[id.mis] <- x[id.mis,]%*%beta.old
+beta.new <- as.vector(solve(t(x)%*%x)%*%t(x)%*%y)
+beta.dif <- max(abs(beta.new-beta.old))
+beta.old <- beta.new
+}
+if (j < max.it) conv = 1
+else conv = 0
+sigma <- sqrt(sum((y[id.obs]-x[id.obs,]%*%beta.new)^2)/(n-p))
+}
+list(coef=beta.new, res.std.err = sigma, conv=conv, no.it=j)
+}
+
+
+lm.EM.SE <- function(data,beta,sigma,mc.size=10000){
+#This function compute observed Fisher information using Louis' formula.
+#The Missing Information is computed by Monte Carlo method with default size=10000.
+n <- dim(data)[1]
+p <- dim(data)[2]
+x <- cbind(rep(1,n),data[,1:(p-1)])
+y <- data[,p]
+id.mis <- c(1:n)[is.na(y)]
+id.obs <- c(1:n)[-id.mis]
+inf.mis1 <- matrix(0,p,p)
+inf.mis2 <- matrix(0,mc.size,p)
+for (i in 1:mc.size){
+y[id.mis] <- rnorm(length(id.mis),as.vector(x[id.mis,]%*%beta),sigma)
+inf.mis2[i,] <- t(x) %*% (y - x %*% beta)/(sigma^2)
+inf.mis1 <- inf.mis1 + outer(inf.mis2[i,], inf.mis2[i,])/mc.size
+}
+a <- apply(inf.mis2,2,mean) 
+inf.mis <- inf.mis1 - outer(a,a)
+inf.com <- t(x)%*%x/(sigma^2) 
+obs.inf <- inf.com - inf.mis
+stderr <- sqrt(diag(solve(obs.inf)))
+list(std.err = stderr, info.com=inf.com, info.mis=inf.mis)
+}
+
+lm.Summary <- function(out, out.se){
+p <- length(out$coef)
+A <- data.frame(Estimate=out$coef, Stderr = out.se$std.err, Z.value=out$coef/out.se$std.err, p.value = 1-pnorm(out$coef/out.se$std.err,0,1)) 
+rownames(A) <- c("Intercept", paste("X",1:(p-1),sep=""))
+list(Summary=A, Convergence=out$conv)
+}
+```
+
+
+```{r, message=FALSE}
+library(tidyr)
+fitness_new = fitness %>% drop_na(Runtime) # delete cases with NA on both runtime and runpulse
+fitness_new = as.matrix(fitness_new)
+
+# compute initial points in the complete-case analysis
+mod = lm(RunPulse ~ Oxygen + Runtime, data =fitness)
+summary(mod)
+beta = mod$coefficients 
+
+# obtain MLE
+lm.EM(data = fitness_new)$conv # imputation converges successfully
+out.est = lm.EM(data = fitness_new)
+
+# extract estimates
+beta = out.est$coef
+sigma = out.est$res.std.err
+
+# compute standard error
+out.se = lm.EM.SE(data = fitness_new, beta = beta, sigma = sigma )
+
+# summary
+lm.Summary(out.est, out.se)
+```
+
+### b.
+
+We applied mutiple-imputation method mentioned in problem 1 in the cleaned data. We also found that statistical significance had imporved compared to the complete-case analysis.
+
+The summary statistics of the linear fit shown below.We also compute the relative efficiency with the default iteration times m = 5, the relative effiency for each variable shown below as well. 
+```{r}
+result = mi.lm(df = fitness_new)
+result
+
+lambda_new =  result$lambda
+# RE
+RE_new = 1/(1 + lambda_new/5)
+RE_new
+```
+
+### c.
+
+Compared the results obtained from the above two methods, we noticed that EM algorithim had much significant improvement in statistical inference and power. 
+
+EM algorithm preserves the relationship between missing variable and other variables, which may give us better estimations. At the same time, EM algorthim required an initial value of parameteres and the estimation of EM algorithm relied on the initial values a lot. 
+
+In terms of multiple imputation, the theory was much easiler to follow and understand. However, based on this case, we noticed that the results by multiple-imputation was not good as EM algorithm. Multiple computation methods required many iterations to help get a good estimation, therefore, the method has high computing cost.
+
+
+
+
+
+
+
+
+```{r, include = FALSE }
+# # write  in a fucntion 
+# # after-imputation analysis function 
+# mi.lm_first = function(df = fitness,m = 5 ){
+#   set.seed(620)
+#   mi.dat = mice(df, m = m)
+#   complete.dat = complete(mi.dat, action = "all") # 5 iteration datasets
+#   means_orig = colMeans(df, na.rm = T)# complete mean ?????
+#   mat = matrix(NA, nrow = m, ncol = 6 )
+#   colnames(mat) = c("Oxygen_mean", "Runtime_mean", "RunPulse_mean", "Oxygen_var", "Runtime_var", "RunPulse_var")
+#   # compute imputed mean and within variance
+#   for (i in 1:m){
+#     dat = complete.dat[[i]]
+#     means_impute = colMeans(dat)
+#     var_within = apply(dat, 2, var)
+#     mat[i,] = c(means_impute, var_within)
+# 
+#   }
+# 
+#   # since no missing value in oxygen, we only compute for runtime and runpulse
+#   mat_means = mat[,2:3]
+#   mat_vars = mat[,5:6]
+#   # difference of each iteration mean and grand mean
+#   diff = sweep(mat_means, 2, colMeans(mat_means))
+#   diff2 = diff^2
+#   
+#   # between-imputation variance
+#   B = 1/(m-1)*colSums(diff2)
+# 
+#   # within-imputation variance
+#   W = colMeans(mat_vars)
+#   
+#   # total variance
+#   Total = W + (1+1/m)*B
+#   
+#   # degree of freedom
+#   v = (m-1)*((1+W/((1+1/m)*B))^2) # 感觉不对
+#   
+#   # RE
+#   r = (1+1/m)*B/W
+#   lambda = (r+2/(v+3))/(r+1)
+#   RE = 1/(1+lambda/m)
+# 
+#   return(RE)
+# 
+# }
+# 
+# mi.lm_first()
+```
+
+
+
+
+
+
+
